@@ -1,0 +1,9 @@
+
+/build/
+/devel/
+/install/
+/.catkin_tools/
+/.vscode/
+/logs/
+
+*/__pycache__/
