@@ -1,0 +1,9 @@
+[submodule "src/relaxed_ik_ros1"]
+	path = src/relaxed_ik_ros1
+	url = https://github.com/uwgraphics/relaxed_ik_ros1.git
+[submodule "relaxed_ik_core"]
+	path = relaxed_ik_core
+	url = https://github.com/uwgraphics/relaxed_ik_core.git
+[submodule "ros-devcontainer"]
+	path = ros-devcontainer
+	url = https://github.com/AlfredMoore/ros-devcontainer.git
