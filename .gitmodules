@@ -4,3 +4,6 @@
 [submodule "ros-devcontainer"]
 	path = ros-devcontainer
 	url = https://github.com/AlfredMoore/ros-devcontainer.git
+[submodule "src/franka_panda_description"]
+	path = src/franka_panda_description
+	url = git@github.com:justagist/franka_panda_description.git
