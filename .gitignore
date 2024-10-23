@@ -7,3 +7,6 @@
 /logs/
 
 */__pycache__/
+
+# unknown files
+*.gv

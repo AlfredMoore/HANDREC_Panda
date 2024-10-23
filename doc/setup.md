@@ -55,5 +55,8 @@ TLDR:
  ```
  Test
  ```bash
-roslaunch relaxed_ik_ros1 demo.launch
+# roslaunch relaxed_ik_ros1 demo.launch
+roslaunch relaxed_ik_ros1 demo.launch setting_file_path:=/home/panda/franka_panda/etc/HANDREC_Panda/configs/panda.yaml
  ```
+
+### 3. Go to the customized package 
