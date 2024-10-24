@@ -4,6 +4,6 @@
 [submodule "src/franka_panda_description"]
 	path = src/franka_panda_description
 	url = git@github.com:justagist/franka_panda_description.git
-[submodule "ros_docker"]
-	path = ros_docker
-	url = git@github.com:AlfredMoore/ros_docker.git
+[submodule "ros-docker-dev"]
+	path = ros-docker-dev
+	url = git@github.com:AlfredMoore/ros-docker-dev.git
