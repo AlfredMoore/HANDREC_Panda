@@ -7,3 +7,4 @@
 [submodule "ros-docker-dev"]
 	path = ros-docker-dev
 	url = git@github.com:AlfredMoore/ros-docker-dev.git
+	branch = main
