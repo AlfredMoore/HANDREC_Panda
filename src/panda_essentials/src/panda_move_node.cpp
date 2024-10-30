@@ -1,17 +1,20 @@
-#include "ros/ros.h"
-#include "std_msgs/String.h"
-
 #include <sstream>
+
+#include <ros/init.h>
+#include <ros/ros.h>
+
+#include <actionlib/client/simple_action_client.h>
+#include <actionlib/client/terminal_state.h>
+
+#
 
 int main(int argc, char **argv)
 {
-    ros::init(argc, argv, "pand_move_node");
+    ros::init(argc, argv, "panda_move_node");
+    ros::NodeHandle node_handle("~");
 
-    ros::NodeHandle nh;
+    actionlib::SimpleActionClient<actionlib_tutorials::FibonacciAction> ac("fibonacci", true);
 
-    ros::Publisher dummy_publisher;
-    dummy_publisher = nh.advertise<std_msgs::String>("/dummy", 1000);
-    
     ros::Rate loop_rate(10);
 
     while (ros::ok())
@@ -28,9 +31,6 @@ int main(int argc, char **argv)
         ros::spinOnce();
 
         loop_rate.sleep();
-
-
     }
     return 0;
-
 }

@@ -4,24 +4,28 @@
     <arg name="robot" default="panda" />
     <arg name="arm_id" default="$(arg robot)" />
     <arg name="load_gripper" default="true" />
-    <arg name="xacro_args" default="" />
 
+    <!-- the urdf is created by franka_panda_description -->
     <param name="robot_description"
         textfile="$(find relaxed_ik_ros1)/relaxed_ik_ros1/relaxed_ik_core/configs/urdfs/panda.urdf" />
 
-    <!-- gripper control -->
-    <include file="$(find franka_gripper)/launch/franka_gripper.launch" if="$(arg load_gripper)">
+    <!-- gripper control action server-->
+    <include file="$(find panda_essentials)/launch/franka_gripper.launch" if="$(arg load_gripper)">
         <arg name="robot_ip" value="$(arg robot_ip)" />
         <arg name="arm_id" value="$(arg arm_id)" />
     </include>
 
+    <!-- start the control node -->
     <node name="franka_control" pkg="franka_control" type="franka_control_node" output="screen"
         required="true">
+        <!-- load rosparam in the private namespace -->
         <rosparam command="load" file="$(find franka_control)/config/franka_control_node.yaml"
             subst_value="true" />
+        <!-- single rosparam loaded -->
         <param name="robot_ip" value="$(arg robot_ip)" />
     </node>
 
+    <!-- subst_value="true" allows roslaunch args representing all or part of a YAML string. -->
     <rosparam command="load" file="$(find franka_control)/config/default_controllers.yaml"
         subst_value="true" />
     <node name="state_controller_spawner" pkg="controller_manager" type="spawner" respawn="false"

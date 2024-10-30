@@ -1,8 +1,10 @@
 <?xml version="1.0"?>
 <launch>
-    <arg name="setting_file_path" default="" required="true"/>
+    <arg name="setting_file_path" required="true"/>
+    <!-- setting_file_path is read in relaxed_ik_rust.py -->
     <param name="setting_file_path" value="$(arg setting_file_path)" />
 
+    <!-- relaxed_ik_rust load the franka_panda_description urdf into public namespace -->
     <node pkg="relaxed_ik_ros1" type="relaxed_ik_rust.py" name="relaxed_ik_rust" output="screen" >
         <param name="use_visualization" value="True" />
     </node>
