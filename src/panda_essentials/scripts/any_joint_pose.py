@@ -8,6 +8,7 @@ from sensor_msgs.msg import JointState
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from control_msgs.msg import FollowJointTrajectoryAction, \
                              FollowJointTrajectoryGoal, FollowJointTrajectoryResult
+from franka_gripper.msg import MoveAction, MoveGoal, MoveResult
 
 NODE_NAME = 'any_joint_pose'
 
@@ -18,6 +19,7 @@ class any_joint_pose_node:
         # effort_joint_trajectory_controller/ and franka_state_controller/
         self.action: str = ros.resolve_name('~follow_joint_trajectory')
         self.topic = ros.resolve_name('~joint_states')
+        self.ik_service = ros.resolve_name('~')
 
         # action client and pseudo action server
         self.client = SimpleActionClient(self.action, FollowJointTrajectoryAction)
@@ -32,19 +34,37 @@ class any_joint_pose_node:
         self.current_pose = self.initial_pose   # TODO: deep copy
 
 
+        # read joint pose and gripper width from ROS parameter
+        param: str = ros.resolve_name('~load_gripper')
+        self.load_gripper: bool = ros.get_param(param, False)
+        if self.load_gripper:
+            # create a client for the gripper action
+            self.gripper_move: str = ros.resolve_name('~move/goal')
+            self.gripper_client = SimpleActionClient(self.gripper_move, MoveAction)
+            self.gripper_client.wait_for_server()
+
+        # update self.joint_pose and self.gripper_config
+        self.readOnce()     
+
     def readOnce(self):
         """
-        Read joint pose from ROS parameter for once
+        Read joint pose and gripper pose from ROS parameter for once
         """
         param: str = ros.resolve_name('~joint_pose')
         self.joint_pose = ros.get_param(param, None)    # target joint pose
         if self.joint_pose is None:
             ros.logerr(f'{NODE_NAME}: Could not find required parameter {param}')
             sys.exit(1)
+        
+        if self.load_gripper:
+            param: str = ros.resolve_name('~gripper_config')
+            self.gripper_config = ros.get_param(param, None)    # target gripper width
+            if self.gripper_config is None:
+                ros.logerr(f'{NODE_NAME}: Could not find required parameter {param}')
+                sys.exit(1)
 
 
     def move_to_pose(self):
-        self.readOnce()     # update self.joint_pose
         max_movement = max(abs(self.joint_pose[joint] - self.current_pose[joint]) for joint in self.joint_pose)
         point = JointTrajectoryPoint()
         point.time_from_start = ros.Duration.from_sec(
@@ -65,9 +85,25 @@ class any_joint_pose_node:
         self.check_result(result)
 
 
+    def move_gripper(self):
+        if not self.load_gripper:
+            ros.logerr(f'{NODE_NAME}: Gripper is not loaded. Cannot move gripper.')
+            sys.exit(1)
+        
+        goal = MoveGoal()
+        goal.width = self.gripper_config.width
+        goal.speed = self.gripper_config.speed
+
+        ros.loginfo(f'{NODE_NAME}: Sending gripper Goal to move into specified config')
+        self.gripper_client.send_goal_and_wait(goal)
+        result = self.gripper_client.get_result()
+        self.check_gripper_result(result)
+
+
+
     def check_result(self, result: FollowJointTrajectoryResult):
         if result.error_code != FollowJointTrajectoryResult.SUCCESSFUL:
-            ros.logerr('move_to_start: Movement was not successful: ' + {
+            ros.logerr(f'{NODE_NAME}: Movement was not successful: ' + {
                 FollowJointTrajectoryResult.INVALID_GOAL:
                 """
                 The joint pose you want to move to is invalid (e.g. unreachable, singularity...).
@@ -94,13 +130,23 @@ class any_joint_pose_node:
             }[result.error_code])
 
         else:
-            ros.loginfo(f'{NODE_NAME}: Successfully moved into specified pose')
+            ros.loginfo(f'{NODE_NAME}: Successfully moved arm into specified pose')
+
+
+    def check_gripper_result(self, result: MoveResult):
+        if not result.success:
+            ros.logerr(f'{NODE_NAME}: Gripper movement was not successful\n {result.error}')
+        else:
+            ros.loginfo(f'{NODE_NAME}: Successfully moved gripper into specified pose')
+
+
 
 
 def main():
     ros.init_node(NODE_NAME)
     node = any_joint_pose_node()
     node.move_to_pose()
+    node.move_gripper()
 
     # TODO: finally spin the node
 

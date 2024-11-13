@@ -25,11 +25,13 @@
         output="screen"
         required="true">
         <!-- load initial pose to ~/joint_pose -->
-        <rosparam file="$(find panda_essentials)/config/start_pose.yaml" subst_value="true" />
+        <rosparam file="$(find panda_essentials)/config/any_joint_pose.yaml" subst_value="true" />
         <remap from="~follow_joint_trajectory"
             to="$(arg transmission)_joint_trajectory_controller/follow_joint_trajectory" />
         <remap from="~joint_states" to="franka_state_controller/joint_states" />
+        <remap if="$(arg load_gripper)" from="~move/goal" to="/franka_gripper/move/goal"/>
         <param name="max_dq" value="0.2" /> <!-- [rad/s] -->
+        <param name="load_gripper" value="$(arg load_gripper)"/>
     </node>
 
 </launch>
