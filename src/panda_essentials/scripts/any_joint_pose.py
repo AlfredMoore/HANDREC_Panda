@@ -43,6 +43,8 @@ class any_joint_pose_node:
             self.gripper_client = SimpleActionClient(self.gripper_move, MoveAction)
             self.gripper_client.wait_for_server()
 
+        # TODO: use IK service to get joint pose
+
         # update self.joint_pose and self.gripper_config
         self.readOnce()     
 
