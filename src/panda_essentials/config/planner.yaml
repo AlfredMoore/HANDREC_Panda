@@ -1,0 +1,14 @@
+global_planner:
+  type: "Interpolation"
+
+local_planner:
+  type: "Interpolation"
+  step_size: 0.01 # in Euclidean space
+  steps: 10
+
+inverse_kinematics:
+  type: "relaxed-IK"
+  service: "relaxed_ik/solve_pose"
+
+debugger:
+  evaluate_time: True

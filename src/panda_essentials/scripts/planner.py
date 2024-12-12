@@ -3,6 +3,7 @@
 import sys
 import rospy as ros
 import numpy as np
+import math
 
 from actionlib import SimpleActionClient
 from sensor_msgs.msg import JointState
@@ -15,94 +16,106 @@ from relaxed_ik_ros1.msg import EEPoseGoals, EEVelGoals
 from relaxed_ik_ros1.srv import IKPoseRequest, IKPose, IKPoseResponse
 
 from transformations import quaternion_slerp
-from uitils import ModuleTimer
+from uitils import time_consumption
 
-class Planner:
+
+class PlannerConfig:
+    """
+    Load ROS parameters for global planner, local planner, inverse kinematics, and debugger
+    """
+    GP_config = ros.get_param('~global_planner', None)
+    LP_config = ros.get_param('~local_planner', None)
+    IK_config = ros.get_param('~inverse_kinematics', None)
+    Debugger = ros.get_param('~debugger', None)
+    
+    if GP_config is None or LP_config is None or IK_config is None:
+        ros.logerr("Missing ROS parameters")
+        sys.exit(1)
+    
+    LP_size = LP_config['step_size'] * LP_config['steps']
+
+
+class GlobalPlanner:
     def __init__(self):
-
-        self.ee_target: Pose
-        self.ee_current: Pose
-
-        self.step_size: float = 0.01
-        self.localplanner_steps: int = 10
-        self.localplanner_size: float = self.step_size * float(self.localplanner_steps)
-
-        self.use_topic_not_service: bool = False
-
-        # Subscribe to IK service/topics
-        ros.wait_for_service('relaxed_ik/solve_pose')
-        self.ik_pose_service = ros.ServiceProxy('relaxed_ik/solve_pose', IKPose)
-
-        self.debug: bool = False
-        if self.debug:
-            self.timer = ModuleTimer("Planner")
-
-
-    def global_planner(self):
-        # Time Consumption Analysis
-        if self.debug:
-            self.timer.start()
         
-        self.distance = np.linalg.norm([self.ee_target.position.x - self.ee_current.position.x,
-                                        self.ee_target.position.y - self.ee_current.position.y,
-                                        self.ee_target.position.z - self.ee_current.position.z])
-        if self.distance <= self.localplanner_size:
-            ros.loginfo("Approaching target. Ending planning...")
-            local_ee_target = self.ee_target
-            self.local_planner(local_ee_target, end=True)
+        self.GP_config = PlannerConfig.GP_config
+        self.IK_config = PlannerConfig.IK_config
+        self.LP_size = PlannerConfig.LP_size
+
+        # # Subscribe to IK service/topics
+        # ros.wait_for_service(self.IK_config['service'])
+        # self.ik_pose_service = ros.ServiceProxy(self.IK_config['service'], IKPose)
+
+
+    @time_consumption(enabled=PlannerConfig.Debugger['evaluate_time'])
+    def plan(self, current_state: Pose, target_state: Pose) -> Pose:
+        """
+        Global planner to plan the path from current state to target state
+        """
+        distance = np.linalg.norm([target_state.position.x - current_state.position.x,
+                                        target_state.position.y - current_state.position.y,
+                                        target_state.position.z - current_state.position.z])
+        local_ee_target = Pose()
+        
+        if distance <= self.LP_size:
+            ros.loginfo("Approaching target in Euclidean space. Euclidean distance: {distance}")
+            local_ee_target = target_state
+
         else:
-            ros.loginfo(f"Global planning. Distance: {self.distance}")
-            local_ee_target = Pose()
-            local_ee_target.position.x = self.ee_current.position.x + self.localplanner_size * (self.ee_target.position.x - self.ee_current.position.x) / distance
-            local_ee_target.position.y = self.ee_current.position.y + self.localplanner_size * (self.ee_target.position.y - self.ee_current.position.y) / distance
-            local_ee_target.position.z = self.ee_current.position.z + self.localplanner_size * (self.ee_target.position.z - self.ee_current.position.z) / distance
-            self.local_planner(local_ee_target, end=False)
+            ros.loginfo(f"Getting global linear samples. Euclidean distance: {distance}")
+            local_ee_target.position.x = current_state.position.x + self.localplanner_size * (target_state.position.x - current_state.position.x) / distance
+            local_ee_target.position.y = current_state.position.y + self.localplanner_size * (target_state.position.y - current_state.position.y) / distance
+            local_ee_target.position.z = current_state.position.z + self.localplanner_size * (target_state.position.z - current_state.position.z) / distance
+            
+        return local_ee_target
 
-        # Time Consumption Analysis
-        if self.debug:
-            self.timer.end()
-            self.timer.get_time_consumption()
 
-    def local_planner(self, local_ee_target: Pose, end: bool = False) -> list[list[float] | None]:
+class LocalPlanner:
+    def __init__(self):
         
-
-        ik_joint_seq = list()
-        fraction = 1 / self.localplanner_steps
-        max_fraction = self.distance / self.localplanner_size
-
-        for i in range(1, self.localplanner_steps):
-            req = IKPoseRequest()
-                
-            if i * fraction > max_fraction:
-                req.ee_pose = local_ee_target
-                break
-            else:
-                ee_pose = Pose()
-                ee_pose.position.x = self.ee_current.position.x + i * fraction * (self.ee_target.position.x - self.ee_current.position.x)
-                ee_pose.position.y = self.ee_current.position.y + i * fraction * (self.ee_target.position.y - self.ee_current.position.y)
-                ee_pose.position.z = self.ee_current.position.z + i * fraction * (self.ee_target.position.z - self.ee_current.position.z)
-                # quaternion_slerp uses [w, x, y, z] as quaternion, O(1) complexity
-                if end:
-                    q_f = quaternion_slerp(self.ee_current.orientation, self.ee_target.orientation, i * fraction)
-                    ee_pose.orientation.x = q_f[1]
-                    ee_pose.orientation.y = q_f[2]
-                    ee_pose.orientation.z = q_f[3]
-                    ee_pose.orientation.w = q_f[0]
-                # No tolerance
-                req.ee_pose = ee_pose
-
-            res: IKPoseResponse = self.ik_pose_service(req)
-            ik_joint_solutions = res.joint_state
-            ik_joint_seq.append(ik_joint_solutions)
+        self.LP_config = PlannerConfig.LP_config
+        self.IK_config = PlannerConfig.IK_config
+        self.LP_size = PlannerConfig.LP_size
+    
+    
+    @time_consumption(enabled=PlannerConfig.Debugger['evaluate_time'])
+    def plan(self, current_state: Pose, target_state: Pose) -> list[list[float] | None]:
+        """
+        Local planner to plan the path from current state to target state with SLERP Interpolation
+        """
+        distance = np.linalg.norm([target_state.position.x - current_state.position.x,
+                                   target_state.position.y - current_state.position.y,
+                                   target_state.position.z - current_state.position.z])
         
-        return ik_joint_seq
+        distance_to_plan = min(distance.item(), self.LP_size)
+        steps_to_plan = math.ceil(distance_to_plan / self.LP_config['step_size'])
+        assert steps_to_plan <= self.LP_config['steps'], "Steps to plan exceed the maximum steps"
 
+        for i in range(1, self.steps_to_plan + 1):
+            ee_pose = Pose()
+            ee_pose.position.x = current_state.position.x + i / self.steps_to_plan * (target_state.position.x - current_state.position.x)
+            ee_pose.position.y = current_state.position.y + i / self.steps_to_plan * (target_state.position.y - current_state.position.y)
+            ee_pose.position.z = current_state.position.z + i / self.steps_to_plan * (target_state.position.z - current_state.position.z)
+            # quaternion_slerp uses [w, x, y, z] as quaternion, O(1) complexity
+            q_f = quaternion_slerp(current_state.orientation, target_state.orientation, i / self.steps_to_plan)
+            ee_pose.orientation.x = q_f[1]
+            ee_pose.orientation.y = q_f[2]
+            ee_pose.orientation.z = q_f[3]
+            ee_pose.orientation.w = q_f[0]
+            # No tolerance
+        
+        return ee_pose
 
-    def update(self, ee_target: Pose, ee_current: Pose):
+      
+    def use_ik_service(self, ee_pose: Pose) -> list[list[float]]:
         """
-        Update the target pose and current pose
+        It is not recommended to use the ROS functionality in scripts outside of a ROS node.
         """
-        self.ee_target = ee_target
-        self.ee_current = ee_current
-
-        self.global_planner()
+        pass
+        # req = IKPoseRequest()
+        # req.ee_pose = ee_pose
+        # res: IKPoseResponse = self.ik_pose_service(req)
+        # ik_joint_solutions = res.joint_state
+        # ik_joint_seq.append(ik_joint_solutions)
+    
+        # return ik_joint_seq
