@@ -34,3 +34,19 @@ def time_consumption(enabled=True):
         return wrapper
 
     return decorator
+
+
+def validate_params(obj) -> bool:
+    # Get public attributes and their values using vars()
+    invalid_list = []
+    for attr, value in vars(obj).items():
+        if not attr.startswith('_'):
+            if value is None:
+                invalid_list.append(attr)
+    
+    if invalid_list:
+        ros.logerror(f"Invalid ROS parameters: {', '.join(invalid_list)}")
+        return False
+    else:
+        return True
+    

@@ -5,7 +5,7 @@
     <arg name="arm_id" default="$(arg robot)" />
     <arg name="load_gripper" default="true" />
 
-    <!-- the urdf is created by franka_panda_description -->
+    <!-- the urdf is created by package franka_panda_description -->
     <param name="robot_description"
         textfile="$(find relaxed_ik_ros1)/relaxed_ik_core/configs/urdfs/panda.urdf" />
 
