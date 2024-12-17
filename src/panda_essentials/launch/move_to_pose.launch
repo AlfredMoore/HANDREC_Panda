@@ -31,7 +31,7 @@
         <remap from="~follow_joint_trajectory"
             to="$(arg transmission)_joint_trajectory_controller/follow_joint_trajectory" />
         <remap from="~joint_states" to="franka_state_controller/joint_states" />
-        <remap if="$(arg load_gripper)" from="~move/goal" to="/franka_gripper/move/goal"/>
+        <remap if="$(arg load_gripper)" from="~grasp" to="/franka_gripper/grasp"/>
         <param name="max_dq" value="0.2" /> <!-- [rad/s] -->
         <param name="load_gripper" value="$(arg load_gripper)"/>
         <param name="setting_file_path" value="$(find panda_essentials)/config/panda.yaml"/>

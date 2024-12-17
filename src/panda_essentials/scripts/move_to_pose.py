@@ -10,14 +10,15 @@ from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from control_msgs.msg import FollowJointTrajectoryAction, \
                              FollowJointTrajectoryGoal, FollowJointTrajectoryResult
 from geometry_msgs.msg import TransformStamped, Pose
-from franka_gripper.msg import MoveAction, MoveGoal, MoveResult
+from franka_gripper.msg import GraspAction, GraspGoal, GraspResult
 from franka_msgs.msg import FrankaState
 
 from relaxed_ik_ros1.msg import EEPoseGoals, EEVelGoals
 from relaxed_ik_ros1.srv import IKPoseRequest,  IKPose, IKPoseResponse
 
 from planner import GlobalPlanner, LocalPlanner
-from uitils import time_consumption, transformstamped_to_pose
+from uitils import time_consumption, transformstamped_to_pose, \
+    check_follow_joint_traj_result, dict_to_pose, dict_to_grasp
 from robot import Robot
 
 
@@ -27,9 +28,13 @@ class Params:
     """
     rate = ros.get_param('~rate', None)
     node_name = ros.get_param('~node_name', "move_to_pos")
-    target_cart_pose = ros.get_param('~target_cart_pose', None)
+    target_pose = dict_to_pose(ros.get_param('~target_pose', None))
+    target_grasp = dict_to_grasp(ros.get_param('~target_grasp', None))
     ik_config = ros.get_param('~inverse_kinematics', None)
     debugger = ros.get_param('~debugger', False)
+    load_gripper = ros.get_param('~load_gripper', False)
+    
+    hardcoding = ros.get_param('~hardcoding', None)
 
 
 class MoveToPose:
@@ -39,14 +44,14 @@ class MoveToPose:
         self.rate = ros.Rate(Params.rate)
 
         # connect to action server
-        # In launchfile these topics will be remapped to namespace for the effort controller
-        # effort_joint_trajectory_controller/ and franka_state_controller/
-        self.action: str = ros.resolve_name('~follow_joint_trajectory')
-        self.topic = ros.resolve_name('~joint_states')
-        # action client and pseudo action server
-        self.client = SimpleActionClient(self.action, FollowJointTrajectoryAction)
-        ros.loginfo(f"{Params.node_name}: Waiting for {self.action} action to come up")
-        self.client.wait_for_server()
+        # remmapped in launch file
+        remapped_joint_action_server: str = ros.resolve_name('~follow_joint_trajectory')
+        remapped_joint_state_topic = ros.resolve_name('~joint_states')
+        remapped_gripper_action_server = ros.resolve_name('~grasp')
+
+        self.joint_action_client = SimpleActionClient(remapped_joint_action_server, FollowJointTrajectoryAction)
+        ros.loginfo(f"{Params.node_name}: Waiting for {remapped_joint_action_server} action to come up")
+        self.joint_action_client.wait_for_server()
         
         # Subscribe to franka_state_controller
         self.franka_state_sub = ros.Subscriber("franka_state_controller/franka_states", FrankaState, self.franka_state_callback)
@@ -57,7 +62,7 @@ class MoveToPose:
         init_ee_pose= self.get_ee_pose()
 
         # read joint state
-        joint_state = ros.wait_for_message(self.topic, JointState)
+        joint_state = ros.wait_for_message(remapped_joint_state_topic, JointState)
         joint_state_dict = dict(zip(joint_state.name, joint_state.position))
         self.current_joint_state = joint_state
 
@@ -83,14 +88,15 @@ class MoveToPose:
         # create a timer for updating the robot state
         self.timer = ros.Timer(ros.Duration(0.5), self.timer_callback)
 
-        # # read joint pose and gripper width from ROS parameter
-        # param: str = ros.resolve_name('~load_gripper')
-        # self.load_gripper: bool = ros.get_param(param, False)
-        # # if self.load_gripper:
-        # #     # create a client for the gripper action
-        # #     self.gripper_move: str = ros.resolve_name('~move/goal')
-        # #     self.gripper_client = SimpleActionClient(self.gripper_move, MoveAction)
-        # #     self.gripper_client.wait_for_server()
+        # read joint pose and gripper width from ROS parameter
+        self.load_gripper = Params.load_gripper
+        if self.load_gripper:
+            # create a client for the gripper action
+            self.gripper_action_client = SimpleActionClient(remapped_gripper_action_server, GraspAction)
+            ros.loginfo(f"{Params.node_name}: Waiting for {remapped_gripper_action_server} action to come up")
+            self.gripper_action_client.wait_for_server()
+            
+
     
     def franka_state_callback(self, msg: FrankaState):
         self.current_franka_state = msg
@@ -115,13 +121,18 @@ class MoveToPose:
         ee_pose = transformstamped_to_pose(ee_trans)
         return ee_pose
 
-    def set_target(self, target: Pose = None):
-        if target is None:
-            target = Params.target_cart_pose
-        self.target_cart_pose = target
+    def set_target(self, target_pose: Pose = None, target_grasp: GraspGoal = None):
+        if target_pose is None:
+            self.target_pose= Params.target_pose
+        
+        if self.load_gripper and target_grasp is None:
+            self.target_grasp = Params.target_grasp
+    
+        return
     
     def timer_callback(self):
-        self.update()
+        return
+        # self.update()
     
     @time_consumption(enabled=Params.debugger['evaluate_time'])
     def update(self):
@@ -129,10 +140,10 @@ class MoveToPose:
         joint_state = self.get_joint_state()
         
         # update global planner
-        self.gp.set_target(self.target_cart_pose)
+        self.gp.set_target(self.target_pose)
         ee_pose = self.get_ee_pose()
         local_target_pose = self.gp.plan(ee_pose)
-        if local_target_pose == self.target_cart_pose:
+        if local_target_pose == self.target_pose:
             stop_at_target = True
         else:
             stop_at_target = False
@@ -170,84 +181,32 @@ class MoveToPose:
         goal.goal_time_tolerance = ros.Duration.from_sec(0.1)
         
         # wait for action result or not? wait at test, but not in real application
-        self.client.send_goal_and_wait(goal)
-        result = self.client.get_result()
+        self.joint_action_client.send_goal_and_wait(goal)
+        result = self.joint_action_client.get_result()
+        # check_follow_joint_traj_result(result, Params.node_name)
         ros.loginfo(f"Result: {result}")
-        # self.client.send_goal(goal)
-
-
-
-
-    def check_result(self, result: FollowJointTrajectoryResult):
-        if result.error_code != FollowJointTrajectoryResult.SUCCESSFUL:
-            ros.logerr(f'{Params.node_name}: Movement was not successful: ' + {
-                FollowJointTrajectoryResult.INVALID_GOAL:
-                """
-                The joint pose you want to move to is invalid (e.g. unreachable, singularity...).
-                Is the 'joint_pose' reachable?
-                """,
-
-                FollowJointTrajectoryResult.INVALID_JOINTS:
-                """
-                The joint pose you specified is for different joints than the joint trajectory controller
-                is claiming. Does you 'joint_pose' include all 7 joints of the robot?
-                """,
-
-                FollowJointTrajectoryResult.PATH_TOLERANCE_VIOLATED:
-                """
-                During the motion the robot deviated from the planned path too much. Is something blocking
-                the robot?
-                """,
-
-                FollowJointTrajectoryResult.GOAL_TOLERANCE_VIOLATED:
-                """
-                After the motion the robot deviated from the desired goal pose too much. Probably the robot
-                didn't reach the joint_pose properly
-                """,
-            }[result.error_code])
-
-        else:
-            ros.loginfo(f'{Params.node_name}: Successfully moved arm into specified pose')
-
-    # def readOnce(self):
-    #     """
-    #     Read joint pose and gripper pose from ROS parameter for once
-    #     """
-    #     param: str = ros.resolve_name('~joint_pose')
-    #     self.joint_pose = ros.get_param(param, None)    # target joint pose
-    #     if self.joint_pose is None:
-    #         ros.logerr(f'{Params.node_name}: Could not find required parameter {param}')
-    #         sys.exit(1)
         
-    #     if self.load_gripper:
-    #         param: str = ros.resolve_name('~gripper_config')
-    #         self.gripper_config = ros.get_param(param, None)    # target gripper width
-    #         if self.gripper_config is None:
-    #             ros.logerr(f'{Params.node_name}: Could not find required parameter {param}')
-    #             sys.exit(1)
-
+        # self.joint_action_client.send_goal(goal)
+        
+        return
     
-    # def move_gripper(self):
-    #     if not self.load_gripper:
-    #         ros.logerr(f'{Params.node_name}: Gripper is not loaded. Cannot move gripper.')
-    #         sys.exit(1)
+
+    def move_gripper(self):
+        if not self.load_gripper:
+            ros.logerr(f'{Params.node_name}: Gripper is not loaded. Cannot move gripper.')
+            sys.exit(1)
         
-    #     goal = MoveGoal()
-    #     goal.width = self.gripper_config.width
-    #     goal.speed = self.gripper_config.speed
+        goal = GraspGoal()
+        goal.width = self.target_grasp.width
+        goal.speed = self.target_grasp.speed
+        # goal.force = self.target_grasp.force
+        # goal.epsilon = self.target_grasp.epsilon
 
-    #     ros.loginfo(f'{Params.node_name}: Sending gripper Goal to move into specified config')
-    #     self.gripper_client.send_goal_and_wait(goal)
-    #     result = self.gripper_client.get_result()
-    #     self.check_gripper_result(result)
+        self.gripper_action_client.send_goal_and_wait(goal)
+        result = self.gripper_action_client.get_result()
+        ros.loginfo(f"Result: {result}")
 
-    # def check_gripper_result(self, result: MoveResult):
-    #     if not result.success:
-    #         ros.logerr(f'{Params.node_name}: Gripper movement was not successful\n {result.error}')
-    #     else:
-    #         ros.loginfo(f'{Params.node_name}: Successfully moved gripper into specified pose')
-
-
+        return
 
 
 def main():
@@ -255,7 +214,9 @@ def main():
     node = MoveToPose()
     
     # test: just update once
+    node.set_target()
     node.update()
+    
     ros.loginfo(f"{Params.node_name}: Test finished")
     ros.singal_shutdown("Test finished")
 

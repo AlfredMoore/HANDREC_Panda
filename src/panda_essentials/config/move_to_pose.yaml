@@ -1,7 +1,7 @@
 rate: 10
 node_name: "move_to_pose"
 
-target_cart_pose:
+target_pose:
   position:
     x: 0.5
     y: 0.5
@@ -12,6 +12,14 @@ target_cart_pose:
     z: 0
     w: 1
 
+target_grasp:
+  width: 0.05
+  speed: 0.05
+  force: 0.1
+  epsilon:
+    inner: 0.005
+    outer: 0.005
+
 inverse_kinematics:
   type: "relaxed-IK"
   solver_service: "/relaxed_ik/solve_pose"
@@ -19,8 +27,11 @@ inverse_kinematics:
   solver_reset: "/relaxed_ik/reset"
   use_service: True
 
+debugger:
+  evaluate_time: True
 
-# hard coding joint values for the panda arm
+
+# hardcoding
 hardcoding:
   use_hardcoding: True
   hardcoding_joint_pose:
@@ -31,9 +42,3 @@ hardcoding:
     $(arg arm_id)_joint5: 0
     $(arg arm_id)_joint6: 1.57079632679
     $(arg arm_id)_joint7: 0.785398163397
-  hardcoding_gripper_config:
-    width: 0.05
-    speed: 0.05
-
-debugger:
-  evaluate_time: True
