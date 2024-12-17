@@ -17,7 +17,7 @@ from relaxed_ik_ros1.msg import EEPoseGoals, EEVelGoals
 from relaxed_ik_ros1.srv import IKPoseRequest,  IKPose, IKPoseResponse
 
 from planner import GlobalPlanner, LocalPlanner
-from uitils import time_consumption
+from uitils import time_consumption, transformstamped_to_pose
 from robot import Robot
 
 
@@ -38,6 +38,7 @@ class MoveToPose:
         # read parameters
         self.rate = ros.Rate(Params.rate)
 
+        # connect to action server
         # In launchfile these topics will be remapped to namespace for the effort controller
         # effort_joint_trajectory_controller/ and franka_state_controller/
         self.action: str = ros.resolve_name('~follow_joint_trajectory')
@@ -52,35 +53,35 @@ class MoveToPose:
         self.franka_joint_state_sub = ros.Subscriber("franka_state_controller/joint_states", JointState, self.franka_joint_state_callback)
         
         # transformation listener
-        tf_buffer = tf2_ros.Buffer()
-        self.tf_listener = tf2_ros.TransformListener(tf_buffer)
-        # read tf tree
-        try:
-            init_ee_trans = tf_buffer.lookup_transform("world", "panda_hand", ros.Time())
-        except (tf2_ros.LookupException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException) as e:
-            ros.logerror(f"Failed to lookup transform: {e}")
+        self.tf_buffer = tf2_ros.Buffer()
+        init_ee_pose= self.get_ee_pose()
 
         # read joint state
         joint_state = ros.wait_for_message(self.topic, JointState)
-        init_joint_state = dict(zip(joint_state.name, joint_state.position))
-        self.current_joint_state = init_joint_state
+        joint_state_dict = dict(zip(joint_state.name, joint_state.position))
+        self.current_joint_state = joint_state
 
         # create robot object
         setting_file_path = ros.get_param('~setting_file_path', None)
         self.robot = Robot(setting_file_path)
-        init_fk_ee_pos = self.robot.fk(init_joint_state['panda_hand'])
         
-        ros.loginfo(f"Initial EE pose from /tf: {init_ee_trans.transform.translation} \nInitial EE pose from IK: {init_fk_ee_pos}")
+        # forward kinematics
+        init_fk_ee_pos = self.robot.fk(joint_state.position)
+        
+        ros.logdebug(f"Initial EE pose from /tf: {init_ee_pose} \nInitial EE pose from IK: {init_fk_ee_pos}")
+        
+        # connect to planners
+        self.gp = GlobalPlanner()
+        self.lp = LocalPlanner()
 
         # connect to inverse kinematics service
-        ros.wait_for_service(Params.ik_config['service'])
-        self.ik_pose_service = ros.ServiceProxy(Params.ik_config['service'], IKPose)
-        self.ik_pose_sub = ros.Publisher(Params.ik_config['relaxed_ik/ee_pose_goals'], EEPoseGoals, self.ik_pose_callback)
-        
-        # connect to effort controller
-        
-        
-        
+        ros.wait_for_service(Params.ik_config['solver_service'])
+        self.ik_pose_service = ros.ServiceProxy(Params.ik_config['solver_service'], IKPose)
+        self.ik_pose_pub = ros.Publisher(Params.ik_config['solver_topic'], EEPoseGoals, 1)
+        self.ik_reset_pub = ros.Publisher(Params.ik_config['solver_reset'], JointState)
+
+        # create a timer for updating the robot state
+        self.timer = ros.Timer(ros.Duration(0.5), self.timer_callback)
 
         # # read joint pose and gripper width from ROS parameter
         # param: str = ros.resolve_name('~load_gripper')
@@ -92,49 +93,87 @@ class MoveToPose:
         # #     self.gripper_client.wait_for_server()
     
     def franka_state_callback(self, msg: FrankaState):
+        self.current_franka_state = msg
         
     def franka_joint_state_callback(self, msg: JointState):
+        joint_state = msg
+        joint_state_dict = dict(zip(joint_state.name, joint_state.position))
+        self.current_joint_state = joint_state
+
     
-    def plan(self):
-        gp = GlobalPlanner()
-        lp = LocalPlanner()
-        # get current state
-        current_state = self.current_joint_state['panda_hand']
-        # get target state
-        target_state = self.target_cart_pose
-        # plan global path
-        local_ee_target = gp.plan(current_state, target_state)
-        # plan local path
-        joint_path = lp.plan(current_state, local_ee_target)
-        return joint_path
+    def get_joint_state(self) -> JointState:
+        return self.current_joint_state
         
+    def get_ee_pose(self) -> TransformStamped:
+        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
+        # read tf tree
+        try:
+            ee_trans = self.tf_buffer.lookup_transform("world", "panda_hand", ros.Time())
+        except (tf2_ros.LookupException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException) as e:
+            ros.logerror(f"Failed to lookup transform: {e}")
+            
+        ee_pose = transformstamped_to_pose(ee_trans)
+        return ee_pose
 
-    def move_to_pose(self, pose: Pose):
-        """
-        Move the end effector to the specified pose
-        """
-        gp = GlobalPlanner()
-        lp = LocalPlanner()
+    def set_target(self, target: Pose = None):
+        if target is None:
+            target = Params.target_cart_pose
+        self.target_cart_pose = target
+    
+    def timer_callback(self):
+        self.update()
+    
+    @time_consumption(enabled=Params.debugger['evaluate_time'])
+    def update(self):
         
+        joint_state = self.get_joint_state()
         
-        max_movement = max(abs(self.joint_pose[joint] - self.current_pose[joint]) for joint in self.joint_pose)
-        point = JointTrajectoryPoint()
-        point.time_from_start = ros.Duration.from_sec(
-            # Use either the time to move the furthest joint with 'max_dq' or 500ms,
-            # whatever is greater
-            max(max_movement / ros.get_param('~max_dq', 0.5), 0.5)
-        )
+        # update global planner
+        self.gp.set_target(self.target_cart_pose)
+        ee_pose = self.get_ee_pose()
+        local_target_pose = self.gp.plan(ee_pose)
+        if local_target_pose == self.target_cart_pose:
+            stop_at_target = True
+        else:
+            stop_at_target = False
+        
+        # update local planner
+        self.lp.set_target(local_target_pose)
+        ee_pose_traj = self.lp.plan(ee_pose)
+        
+        # trajectory action goal
         goal = FollowJointTrajectoryGoal()
-        goal.trajectory.joint_names, point.positions = [list(x) for x in zip(*self.joint_pose.items())]    # joint names and target joint pose
+        joint_traj = JointTrajectory()
+        joint_traj.joint_names = joint_state.name
+        duration = 0
+        dt = 0.1
         
-        point.velocities = [0] * len(self.joint_pose)   # stop at target pose (velocity = 0)
-        goal.trajectory.points.append(point)    # only one point in trajectory
-        goal.goal_time_tolerance = ros.Duration.from_sec(0.5)
-
-        ros.loginfo(f'{Params.node_name}: Sending trajectory Goal to move into specified config')
+        # communicate with IK solver and specify action gaol
+        self.ik_reset_pub.publish(ee_pose)
+        for i in range(len(ee_pose_traj)):
+            req = IKPoseRequest()
+            req.ee_poses.append(ee_pose_traj[i])
+            # TODO: req.tolerances
+            ik_solution = self.ik_pose_service(req)
+            
+            point = JointTrajectoryPoint()
+            duration += dt
+            point.time_from_start = ros.Duration.from_sec(duration)
+            point.positions = ik_solution.joint_state
+            if i == len(ee_pose_traj)-1 and stop_at_target:
+                point.velocities = [0] * len(joint_state.name)
+                
+            joint_traj.points.append(point)
+        
+        # move
+        goal.trajectory = joint_traj
+        goal.goal_time_tolerance = ros.Duration.from_sec(0.1)
+        
+        # wait for action result or not? wait at test, but not in real application
         self.client.send_goal_and_wait(goal)
         result = self.client.get_result()
-        self.check_result(result)
+        ros.loginfo(f"Result: {result}")
+        # self.client.send_goal(goal)
 
 
 
@@ -214,8 +253,11 @@ class MoveToPose:
 def main():
     ros.init_node(Params.node_name)
     node = MoveToPose()
-    node.move_to_pose()
-    # node.move_gripper()
+    
+    # test: just update once
+    node.update()
+    ros.loginfo(f"{Params.node_name}: Test finished")
+    ros.singal_shutdown("Test finished")
 
 
 

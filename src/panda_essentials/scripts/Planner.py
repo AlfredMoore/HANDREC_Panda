@@ -42,29 +42,31 @@ class GlobalPlanner:
         # ros.wait_for_service(self.ik_config['service'])
         # self.ik_pose_service = ros.ServiceProxy(self.ik_config['service'], IKPose)
 
+    def set_target(self, target: Pose):
+        self.target_pose = target
 
     @time_consumption(enabled=Params.debugger['evaluate_time'])
-    def plan(self, current_state: Pose, target_state: Pose) -> Pose:
+    def plan(self, current_pose: Pose) -> Pose:
         """
         Global planner to plan the path from current state to target state
-        return local_ee_target
+        return local_target_pose
         """
-        distance = np.linalg.norm([target_state.position.x - current_state.position.x,
-                                        target_state.position.y - current_state.position.y,
-                                        target_state.position.z - current_state.position.z])
-        local_ee_target = Pose()
+        distance = np.linalg.norm([self.target_pose.position.x - current_pose.position.x,
+                                        self.target_pose.position.y - current_pose.position.y,
+                                        self.target_pose.position.z - current_pose.position.z])
+        local_target_pose = Pose()
         
         if distance <= self.lp_size:
             ros.loginfo("Approaching target in Euclidean space. Euclidean distance: {distance}")
-            local_ee_target = target_state
+            local_target_pose = self.target_pose
 
         else:
             ros.loginfo(f"Getting global linear samples. Euclidean distance: {distance}")
-            local_ee_target.position.x = current_state.position.x + self.localplanner_size * (target_state.position.x - current_state.position.x) / distance
-            local_ee_target.position.y = current_state.position.y + self.localplanner_size * (target_state.position.y - current_state.position.y) / distance
-            local_ee_target.position.z = current_state.position.z + self.localplanner_size * (target_state.position.z - current_state.position.z) / distance
+            local_target_pose.position.x = current_pose.position.x + self.localplanner_size * (self.target_pose.position.x - current_pose.position.x) / distance
+            local_target_pose.position.y = current_pose.position.y + self.localplanner_size * (self.target_pose.position.y - current_pose.position.y) / distance
+            local_target_pose.position.z = current_pose.position.z + self.localplanner_size * (self.target_pose.position.z - current_pose.position.z) / distance
             
-        return local_ee_target
+        return local_target_pose
 
 
 class LocalPlanner:
@@ -73,41 +75,43 @@ class LocalPlanner:
         self.lp_config = Params.lp_config
         self.ik_config = Params.ik_config
         self.lp_size = Params.lp_size
-    
+        
+    def set_target(self, target: Pose):
+        self.target_pose = target
     
     @time_consumption(enabled=Params.debugger['evaluate_time'])
-    def plan(self, current_state: Pose, target_state: Pose) -> list[Pose]:
+    def plan(self, current_pose: Pose) -> list[Pose]:
         """
         Local planner to plan the path from current state to target state with SLERP Interpolation
-         @ return ee_pose_plan
+         @ return ee_pose_traj
         """
-        distance = np.linalg.norm([target_state.position.x - current_state.position.x,
-                                   target_state.position.y - current_state.position.y,
-                                   target_state.position.z - current_state.position.z])
+        distance = np.linalg.norm([self.target_pose.position.x - current_pose.position.x,
+                                   self.target_pose.position.y - current_pose.position.y,
+                                   self.target_pose.position.z - current_pose.position.z])
         
         distance_to_plan = min(distance.item(), self.lp_size)
         steps_to_plan = math.ceil(distance_to_plan / self.lp_config['step_size'])
         assert steps_to_plan <= self.lp_config['steps'], "Steps to plan exceed the maximum steps"
 
-        ee_pose_plan = list()
+        ee_pose_traj = list()
         for i in range(1, self.steps_to_plan):
             ee_pose = Pose()
-            ee_pose.position.x = current_state.position.x + i / self.steps_to_plan * (target_state.position.x - current_state.position.x)
-            ee_pose.position.y = current_state.position.y + i / self.steps_to_plan * (target_state.position.y - current_state.position.y)
-            ee_pose.position.z = current_state.position.z + i / self.steps_to_plan * (target_state.position.z - current_state.position.z)
+            ee_pose.position.x = current_pose.position.x + i / self.steps_to_plan * (self.target_pose.position.x - current_pose.position.x)
+            ee_pose.position.y = current_pose.position.y + i / self.steps_to_plan * (self.target_pose.position.y - current_pose.position.y)
+            ee_pose.position.z = current_pose.position.z + i / self.steps_to_plan * (self.target_pose.position.z - current_pose.position.z)
             # quaternion_slerp uses [w, x, y, z] as quaternion, O(1) complexity
-            q_f = quaternion_slerp(current_state.orientation, target_state.orientation, i / self.steps_to_plan)
+            q_f = quaternion_slerp(current_pose.orientation, self.target_pose.orientation, i / self.steps_to_plan)
             ee_pose.orientation.x = q_f[1]
             ee_pose.orientation.y = q_f[2]
             ee_pose.orientation.z = q_f[3]
             ee_pose.orientation.w = q_f[0]
             # No tolerance
-            ee_pose_plan.append(ee_pose)
+            ee_pose_traj.append(ee_pose)
         
-        ee_pose_plan.append(target_state)   # Add the target state as the last waypoint
-        assert len(ee_pose_plan) == steps_to_plan, f"Actual waypoints: {ee_pose_plan}, Expected steps: {steps_to_plan}"
+        ee_pose_traj.append(self.target_pose)   # Add the target state as the last waypoint
+        assert len(ee_pose_traj) == steps_to_plan, f"Actual waypoints: {ee_pose_traj}, Expected steps: {steps_to_plan}"
         
-        return ee_pose_plan
+        return ee_pose_traj
 
       
     # Add this to the ROS node

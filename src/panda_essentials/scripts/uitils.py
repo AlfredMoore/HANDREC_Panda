@@ -1,6 +1,6 @@
 import rospy as ros
 from functools import wraps
-
+from geometry_msgs.msg import TransformStamped, Pose
 
 def time_consumption(enabled=True):
     """
@@ -50,3 +50,13 @@ def validate_params(obj) -> bool:
     else:
         return True
     
+def transformstamped_to_pose(transform: TransformStamped) -> Pose:
+    pose = Pose()
+    pose.position.x = transform.transform.translation.x
+    pose.position.y = transform.transform.translation.y
+    pose.position.z = transform.transform.translation.z
+    pose.orientation.x = transform.transform.rotation.x
+    pose.orientation.y = transform.transform.rotation.y
+    pose.orientation.z = transform.transform.rotation.z
+    pose.orientation.w = transform.transform.rotation.w
+    return pose

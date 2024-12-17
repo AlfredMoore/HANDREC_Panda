@@ -14,8 +14,9 @@ target_cart_pose:
 
 inverse_kinematics:
   type: "relaxed-IK"
-  service: "relaxed_ik/solve_pose"
-  topic: "relaxed_ik/ee_pose_goals"
+  solver_service: "/relaxed_ik/solve_pose"
+  solver_topic: "/relaxed_ik/ee_pose_goals"
+  solver_reset: "/relaxed_ik/reset"
   use_service: True
 
 
