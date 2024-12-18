@@ -4,13 +4,13 @@ node_name: "move_to_pose"
 target_pose:
   position:
     x: 0.5
-    y: 0.5
+    y: 0.1
     z: 0.5
   orientation:
-    x: 0
-    y: 0
+    x: 0.9
+    y: 0.4
     z: 0
-    w: 1
+    w: 0
 
 target_grasp:
   width: 0.05
