@@ -33,7 +33,7 @@ class Params:
 
 class GlobalPlanner:
     def __init__(self):
-        
+        # task planner
         self.gp_config = Params.gp_config
         self.ik_config = Params.ik_config
         self.lp_size = Params.lp_size
@@ -44,9 +44,13 @@ class GlobalPlanner:
 
     def set_target(self, target: Pose):
         self.target_pose = target
+        
+    def set_task(self, task):
+        raise NotImplementedError("Task planning is not implemented yet")
+        self.task = task
 
     @time_consumption(enabled=Params.debugger['evaluate_time'])
-    def plan(self, current_pose: Pose) -> Pose:
+    def plan_interpolation(self, current_pose: Pose) -> Pose:
         """
         Global planner to plan the path from current state to target state
         return local_target_pose
@@ -67,6 +71,11 @@ class GlobalPlanner:
             local_target_pose.position.z = current_pose.position.z + self.localplanner_size * (self.target_pose.position.z - current_pose.position.z) / distance
             
         return local_target_pose
+    
+    def plan_task(self):
+        raise NotImplementedError("Task planning is not implemented yet")
+        self.task
+        return
 
 
 class LocalPlanner:
@@ -74,13 +83,13 @@ class LocalPlanner:
         
         self.lp_config = Params.lp_config
         self.ik_config = Params.ik_config
-        self.lp_size = Params.lp_size
+        self.lp_size = Params.lp_size   # we don't need this in this branch
         
     def set_target(self, target: Pose):
         self.target_pose = target
     
     @time_consumption(enabled=Params.debugger['evaluate_time'])
-    def plan(self, current_pose: Pose) -> list[Pose]:
+    def plan_interpolation(self, current_pose: Pose) -> list[Pose]:
         """
         Local planner to plan the path from current state to target state with SLERP Interpolation
          @ return ee_pose_traj
@@ -89,9 +98,9 @@ class LocalPlanner:
                                    self.target_pose.position.y - current_pose.position.y,
                                    self.target_pose.position.z - current_pose.position.z])
         
-        distance_to_plan = min(distance.item(), self.lp_size)
+        distance_to_plan = distance.item()
         steps_to_plan = math.ceil(distance_to_plan / self.lp_config['step_size'])
-        assert steps_to_plan <= self.lp_config['steps'], "Steps to plan exceed the maximum steps"
+        assert steps_to_plan <= 1000, "Steps to plan exceed the maximum steps"
 
         ee_pose_traj = list()
         for i in range(1, self.steps_to_plan):

@@ -131,18 +131,26 @@ class MoveToPose:
         return
     
     def timer_callback(self):
+        raise NotImplementedError("Timer callback is not implemented yet")
+        # self.local_plan_to_action()
+    
+    def task_plan_to_local_plan(self):
+        raise NotImplementedError("Task planning is not implemented yet")
         return
-        # self.update()
     
     @time_consumption(enabled=Params.debugger['evaluate_time'])
-    def update(self):
+    def local_plan_to_action(self):
         
         joint_state = self.get_joint_state()
-        
-        # update global planner
-        self.gp.set_target(self.target_pose)
         ee_pose = self.get_ee_pose()
-        local_target_pose = self.gp.plan(ee_pose)
+        
+        # task planner is not ready
+        # self.task_plan_to_local_plan()
+        
+        # self.gp.set_target(self.target_pose)
+        # local_target_pose = self.gp.plan(ee_pose)
+        
+        local_target_pose = self.target_pose        # hardcoding for test
         if local_target_pose == self.target_pose:
             stop_at_target = True
         else:
@@ -215,7 +223,7 @@ def main():
     
     # test: just update once
     node.set_target()
-    node.update()
+    node.local_plan_to_action()
     
     ros.loginfo(f"{Params.node_name}: Test finished")
     ros.singal_shutdown("Test finished")
