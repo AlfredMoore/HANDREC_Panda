@@ -29,7 +29,7 @@ inverse_kinematics:
 
 # planner config
 global_planner:
-  type: "Interpolation"
+  type: "TaskPlanner"
 
 local_planner:
   type: "Interpolation"

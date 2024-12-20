@@ -80,7 +80,7 @@ class GlobalPlanner:
 
 
 class LocalPlanner:
-    def __init__(self, param):
+    def __init__(self, params):
         
         self.lp_config = params.lp_config
         self.ik_config = params.ik_config

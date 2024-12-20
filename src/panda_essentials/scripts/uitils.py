@@ -9,7 +9,7 @@ from franka_gripper.msg import GraspGoal
 
 
 
-def time_consumption(enabled=True):
+def time_consumption(enabled=False):
     """
     A decorator to measure the time consumption of a function.
     Includes the class name if used within a class.

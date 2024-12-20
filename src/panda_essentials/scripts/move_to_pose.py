@@ -26,30 +26,32 @@ class Params:
     """
     Load ROS parameters
     """
-    # move node config
-    rate = ros.get_param('~rate', None)
-    node_name = ros.get_param('~node_name', "move_to_pose")
-    target_pose = dict_to_pose(ros.get_param('~target_pose', None))
-    target_grasp = dict_to_grasp(ros.get_param('~target_grasp', None))
-    ik_config = ros.get_param('~inverse_kinematics', None)
-    debugger = ros.get_param('~debugger', False)
-    load_gripper = ros.get_param('~load_gripper', False)
-    
-    hardcoding = ros.get_param('~hardcoding', None)
+    def __init__(self):
+        # move node config
+        rate = ros.get_param('~rate', None)
+        node_name = ros.get_param('~node_name', "move_to_pose")
+        target_pose = dict_to_pose(ros.get_param('~target_pose', None))
+        target_grasp = dict_to_grasp(ros.get_param('~target_grasp', None))
+        ik_config = ros.get_param('~inverse_kinematics', None)
+        debugger = ros.get_param('~debugger', False)
+        load_gripper = ros.get_param('~load_gripper', False)
+        
+        hardcoding = ros.get_param('~hardcoding', None)
 
-    # planner config
-    gp_config = ros.get_param('~global_planner', None)
-    lp_config = ros.get_param('~local_planner', None)
-    debugger = ros.get_param('~debugger', False)
+        # planner config
+        gp_config = ros.get_param('~global_planner', None)
+        lp_config = ros.get_param('~local_planner', None)
+        debugger = ros.get_param('~debugger', False)
 
-    lp_size = lp_config['step_size'] * lp_config['steps']
+        lp_size = lp_config['step_size'] * lp_config['steps']
 
 
 class MoveToPose:
-    def __init__(self):
+    def __init__(self, params: Params):
 
         # read parameters
-        self.rate = ros.Rate(Params.rate)
+        self.params = params
+        self.rate = ros.Rate(self.params.rate)
 
         # connect to action server
         # remmapped in launch file
@@ -58,7 +60,7 @@ class MoveToPose:
         remapped_gripper_action_server = ros.resolve_name('~grasp')
 
         self.joint_action_client = SimpleActionClient(remapped_joint_action_server, FollowJointTrajectoryAction)
-        ros.loginfo(f"{Params.node_name}: Waiting for {remapped_joint_action_server} action to come up")
+        ros.loginfo(f"{self.params.node_name}: Waiting for {remapped_joint_action_server} action to come up")
         self.joint_action_client.wait_for_server()
         
         # Subscribe to franka_state_controller
@@ -84,24 +86,24 @@ class MoveToPose:
         ros.logdebug(f"Initial EE pose from /tf: {init_ee_pose} \nInitial EE pose from IK: {init_fk_ee_pos}")
         
         # connect to planners
-        self.gp = GlobalPlanner(Params)
-        self.lp = LocalPlanner(Params)
+        self.gp = GlobalPlanner(self.params)
+        self.lp = LocalPlanner(self.params)
 
         # connect to inverse kinematics service
-        ros.wait_for_service(Params.ik_config['solver_service'])
-        self.ik_pose_service = ros.ServiceProxy(Params.ik_config['solver_service'], IKPose)
-        self.ik_pose_pub = ros.Publisher(Params.ik_config['solver_topic'], EEPoseGoals, 1)
-        self.ik_reset_pub = ros.Publisher(Params.ik_config['solver_reset'], JointState)
+        ros.wait_for_service(self.params.ik_config['solver_service'])
+        self.ik_pose_service = ros.ServiceProxy(self.params.ik_config['solver_service'], IKPose)
+        self.ik_pose_pub = ros.Publisher(self.params.ik_config['solver_topic'], EEPoseGoals, 1)
+        self.ik_reset_pub = ros.Publisher(self.params.ik_config['solver_reset'], JointState)
 
         # create a timer for updating the robot state
         self.timer = ros.Timer(ros.Duration(0.5), self.timer_callback)
 
         # read joint pose and gripper width from ROS parameter
-        self.load_gripper = Params.load_gripper
+        self.load_gripper = self.params.load_gripper
         if self.load_gripper:
             # create a client for the gripper action
             self.gripper_action_client = SimpleActionClient(remapped_gripper_action_server, GraspAction)
-            ros.loginfo(f"{Params.node_name}: Waiting for {remapped_gripper_action_server} action to come up")
+            ros.loginfo(f"{self.params.node_name}: Waiting for {remapped_gripper_action_server} action to come up")
             self.gripper_action_client.wait_for_server()
             
 
@@ -131,10 +133,10 @@ class MoveToPose:
 
     def set_target(self, target_pose: Pose = None, target_grasp = None):
         if target_pose is None:
-            self.target_pose= Params.target_pose
+            self.target_pose= self.params.target_pose
         
         if self.load_gripper and target_grasp is None:
-            self.target_grasp = Params.target_grasp
+            self.target_grasp = self.params.target_grasp
     
         return
     
@@ -146,7 +148,7 @@ class MoveToPose:
         raise NotImplementedError("Task planning is not implemented yet")
         return
     
-    @time_consumption(enabled=Params.debugger['evaluate_time'])
+    @time_consumption(enabled=True)
     def local_plan_to_action(self):
         
         joint_state = self.get_joint_state()
@@ -166,7 +168,7 @@ class MoveToPose:
         
         # update local planner
         self.lp.set_target(local_target_pose)
-        ee_pose_traj = self.lp.plan(ee_pose)
+        ee_pose_traj = self.lp.plan_interpolation(ee_pose)
         
         # trajectory action goal
         goal = FollowJointTrajectoryGoal()
@@ -199,7 +201,7 @@ class MoveToPose:
         # wait for action result or not? wait at test, but not in real application
         self.joint_action_client.send_goal_and_wait(goal)
         result = self.joint_action_client.get_result()
-        # check_follow_joint_traj_result(result, Params.node_name)
+        # check_follow_joint_traj_result(result, self.params.node_name)
         ros.loginfo(f"Result: {result}")
         
         # self.joint_action_client.send_goal(goal)
@@ -209,7 +211,7 @@ class MoveToPose:
 
     def move_gripper(self):
         if not self.load_gripper:
-            ros.logerr(f'{Params.node_name}: Gripper is not loaded. Cannot move gripper.')
+            ros.logerr(f'{self.params.node_name}: Gripper is not loaded. Cannot move gripper.')
             sys.exit(1)
         
         goal = GraspGoal()
@@ -228,15 +230,16 @@ class MoveToPose:
 def main():
     print(ros.resolve_name('~name'))
     print("...................................................................................")
-    ros.init_node(Params.node_name)
-    node = MoveToPose()
+    ros.init_node("move_to_pose")
+    params = Params()
+    node = MoveToPose(params)
     print(ros.resolve_name('~name'))
     
     # test: just update once
     node.set_target()
     node.local_plan_to_action()
     
-    ros.loginfo(f"{Params.node_name}: Test finished")
+    ros.loginfo(f"{params.node_name}: Test finished")
     ros.singal_shutdown("Test finished")
 
 
