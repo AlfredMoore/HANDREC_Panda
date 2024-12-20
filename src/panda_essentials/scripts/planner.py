@@ -18,39 +18,40 @@ from relaxed_ik_ros1.srv import IKPoseRequest, IKPose, IKPoseResponse
 from transformations import quaternion_slerp
 from uitils import time_consumption
 
+# class Params:
+#     """
+#     Load ROS parameters for global planner, local planner, inverse kinematics, and debugger
+#     """
 
-class Params:
-    """
-    Load ROS parameters for global planner, local planner, inverse kinematics, and debugger
-    """
-    gp_config = ros.get_param('~global_planner', None)
-    lp_config = ros.get_param('~local_planner', None)
-    ik_config = ros.get_param('~inverse_kinematics', None)
-    debugger = ros.get_param('~debugger', False)
-    
-    lp_size = lp_config['step_size'] * lp_config['steps']
+#     gp_config = ros.get_param('~global_planner', None)
+#     lp_config = ros.get_param('~local_planner', None)
+#     ik_config = ros.get_param('~inverse_kinematics', None)
+#     debugger = ros.get_param('~debugger', False)
+
+#     lp_size = lp_config['step_size'] * lp_config['steps']
 
 
 class GlobalPlanner:
-    def __init__(self):
+    def __init__(self, params):
         # task planner
-        self.gp_config = Params.gp_config
-        self.ik_config = Params.ik_config
-        self.lp_size = Params.lp_size
+        self.gp_config = params.gp_config
+        self.ik_config = params.ik_config
+        self.lp_size = params.lp_size
+        self.debugger = params.debugger
 
         # # Subscribe to IK service/topics
         # ros.wait_for_service(self.ik_config['service'])
         # self.ik_pose_service = ros.ServiceProxy(self.ik_config['service'], IKPose)
 
-    def set_target(self, target: Pose):
+    def set_target(self, target):
         self.target_pose = target
         
     def set_task(self, task):
         raise NotImplementedError("Task planning is not implemented yet")
         self.task = task
 
-    @time_consumption(enabled=Params.debugger['evaluate_time'])
-    def plan_interpolation(self, current_pose: Pose) -> Pose:
+    @time_consumption(enabled=True)
+    def plan_interpolation(self, current_pose):
         """
         Global planner to plan the path from current state to target state
         return local_target_pose
@@ -79,21 +80,22 @@ class GlobalPlanner:
 
 
 class LocalPlanner:
-    def __init__(self):
+    def __init__(self, param):
         
-        self.lp_config = Params.lp_config
-        self.ik_config = Params.ik_config
-        self.lp_size = Params.lp_size   # we don't need this in this branch
+        self.lp_config = params.lp_config
+        self.ik_config = params.ik_config
+        self.lp_size = params.lp_size   # we don't need this in this branch
         
-    def set_target(self, target: Pose):
+    def set_target(self, target):
         self.target_pose = target
     
-    @time_consumption(enabled=Params.debugger['evaluate_time'])
-    def plan_interpolation(self, current_pose: Pose) -> list[Pose]:
+    @time_consumption(enabled=True)
+    def plan_interpolation(self, current_pose):
         """
         Local planner to plan the path from current state to target state with SLERP Interpolation
          @ return ee_pose_traj
         """
+        print(current_pose)
         distance = np.linalg.norm([self.target_pose.position.x - current_pose.position.x,
                                    self.target_pose.position.y - current_pose.position.y,
                                    self.target_pose.position.z - current_pose.position.z])
@@ -124,7 +126,7 @@ class LocalPlanner:
 
       
     # Add this to the ROS node
-    def use_ik_service(self, ee_pose: Pose) -> list[list[float]]:
+    def use_ik_service(self, ee_pose):
         """
         It is not recommended to use the ROS functionality in scripts outside the ROS node.
         """

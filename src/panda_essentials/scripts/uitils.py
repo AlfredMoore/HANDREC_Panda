@@ -43,7 +43,7 @@ def time_consumption(enabled=True):
     return decorator
 
 
-def validate_params(obj) -> bool:
+def validate_params(obj):
     # Get public attributes and their values using vars()
     invalid_list = []
     for attr, value in vars(obj).items():
@@ -57,7 +57,7 @@ def validate_params(obj) -> bool:
     else:
         return True
     
-def transformstamped_to_pose(transform: TransformStamped) -> Pose:
+def transformstamped_to_pose(transform):
     pose = Pose()
     pose.position.x = transform.transform.translation.x
     pose.position.y = transform.transform.translation.y
@@ -68,7 +68,7 @@ def transformstamped_to_pose(transform: TransformStamped) -> Pose:
     pose.orientation.w = transform.transform.rotation.w
     return pose
 
-def dict_to_pose(pose_dict: dict) -> Pose:
+def dict_to_pose(pose_dict):
     pose = Pose()
     pose.position.x = pose_dict['position']['x']
     pose.position.y = pose_dict['position']['y']
@@ -79,7 +79,7 @@ def dict_to_pose(pose_dict: dict) -> Pose:
     pose.orientation.w = pose_dict['orientation']['w']
     return pose
 
-def dict_to_grasp(grasp_dict: dict) -> GraspGoal:
+def dict_to_grasp(grasp_dict):
     grasp = GraspGoal()
     grasp.width = grasp_dict['width']
     grasp.speed = grasp_dict['speed']
@@ -89,7 +89,7 @@ def dict_to_grasp(grasp_dict: dict) -> GraspGoal:
     return grasp
 
 
-def check_follow_joint_traj_result(self, result: FollowJointTrajectoryResult, node_name: str):
+def check_follow_joint_traj_result(self, result, node_name):
     if result.error_code != FollowJointTrajectoryResult.SUCCESSFUL:
         ros.logerr(f'{node_name}: Movement was not successful: ' + {
             FollowJointTrajectoryResult.INVALID_GOAL:

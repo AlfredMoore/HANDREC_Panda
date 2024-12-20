@@ -26,8 +26,9 @@ class Params:
     """
     Load ROS parameters
     """
+    # move node config
     rate = ros.get_param('~rate', None)
-    node_name = ros.get_param('~node_name', "move_to_pos")
+    node_name = ros.get_param('~node_name', "move_to_pose")
     target_pose = dict_to_pose(ros.get_param('~target_pose', None))
     target_grasp = dict_to_grasp(ros.get_param('~target_grasp', None))
     ik_config = ros.get_param('~inverse_kinematics', None)
@@ -35,6 +36,13 @@ class Params:
     load_gripper = ros.get_param('~load_gripper', False)
     
     hardcoding = ros.get_param('~hardcoding', None)
+
+    # planner config
+    gp_config = ros.get_param('~global_planner', None)
+    lp_config = ros.get_param('~local_planner', None)
+    debugger = ros.get_param('~debugger', False)
+
+    lp_size = lp_config['step_size'] * lp_config['steps']
 
 
 class MoveToPose:
@@ -76,8 +84,8 @@ class MoveToPose:
         ros.logdebug(f"Initial EE pose from /tf: {init_ee_pose} \nInitial EE pose from IK: {init_fk_ee_pos}")
         
         # connect to planners
-        self.gp = GlobalPlanner()
-        self.lp = LocalPlanner()
+        self.gp = GlobalPlanner(Params)
+        self.lp = LocalPlanner(Params)
 
         # connect to inverse kinematics service
         ros.wait_for_service(Params.ik_config['solver_service'])
@@ -98,10 +106,10 @@ class MoveToPose:
             
 
     
-    def franka_state_callback(self, msg: FrankaState):
+    def franka_state_callback(self, msg):
         self.current_franka_state = msg
         
-    def franka_joint_state_callback(self, msg: JointState):
+    def franka_joint_state_callback(self, msg):
         joint_state = msg
         joint_state_dict = dict(zip(joint_state.name, joint_state.position))
         self.current_joint_state = joint_state
@@ -121,7 +129,7 @@ class MoveToPose:
         ee_pose = transformstamped_to_pose(ee_trans)
         return ee_pose
 
-    def set_target(self, target_pose: Pose = None, target_grasp: GraspGoal = None):
+    def set_target(self, target_pose: Pose = None, target_grasp = None):
         if target_pose is None:
             self.target_pose= Params.target_pose
         
@@ -218,8 +226,11 @@ class MoveToPose:
 
 
 def main():
+    print(ros.resolve_name('~name'))
+    print("...................................................................................")
     ros.init_node(Params.node_name)
     node = MoveToPose()
+    print(ros.resolve_name('~name'))
     
     # test: just update once
     node.set_target()
